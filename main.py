@@ -4,7 +4,6 @@ import yfinance as yf
 
 app = FastAPI()
 
-# HTML 화면이 파이썬 서버에 접근할 수 있도록 보안문을 열어주는 설정 (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -17,7 +16,6 @@ app.add_middleware(
 def read_root():
     return {"message": "서버가 정상적으로 작동 중입니다!"}
 
-# 1. 실시간 주가 가져오기 기능
 @app.get("/api/market-data/{ticker}")
 def get_market_data(ticker: str):
     stock = yf.Ticker(ticker)
@@ -28,7 +26,6 @@ def get_market_data(ticker: str):
         "status": "success"
     }
 
-# 2. 실시간 장세 분석 및 뉴스 수집 기능
 @app.get("/api/market-sentiment/{ticker}")
 def analyze_market(ticker: str):
     stock = yf.Ticker(ticker)
@@ -53,15 +50,27 @@ def analyze_market(ticker: str):
         bull, sideways, bear = 20, 65, 15
         desc = f"최근 1개월 수익률은 {return_rate:.1f}%로, 위아래로 흔들리는 변동성 횡보장입니다. 무한매수법이 수학적 우위를 갖기 가장 좋습니다."
 
-    # 야후 파이낸스에서 최신 뉴스 헤드라인 5개 긁어오기
-    news_data = stock.news
+    # 💡 [스마트 뉴스 엔진] TQQQ/SOXL 같은 ETF 검색 시, 연동된 대장 지수/주식 뉴스를 대신 긁어오는 로직
+    search_ticker = ticker.upper()
+    if search_ticker == "TQQQ":
+        search_ticker = "QQQ"  # 나스닥100 지수 뉴스 가져오기
+    elif search_ticker == "SOXL":
+        search_ticker = "SOXX" # 필라델피아 반도체 지수 뉴스 가져오기
+
+    news_stock = yf.Ticker(search_ticker)
+    news_data = news_stock.news
+    
+    # 만약 그래도 뉴스 데이터가 비어있다면, 미국 전체 시장 뉴스(SPY)를 가져오기
+    if not news_data:
+        news_data = yf.Ticker("SPY").news
+
     news_list = []
     if news_data:
         for news in news_data[:5]:
             title = news.get('title', '제목 없음')
             news_list.append(title)
     else:
-        news_list.append("현재 업데이트된 주요 뉴스가 없습니다.")
+        news_list.append("현재 업데이트된 주요 시장 뉴스가 없습니다.")
 
     return {
         "ticker": ticker.upper(),
