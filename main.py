@@ -14,10 +14,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Render 환경변수에 심어둔 AI 비밀키를 자동으로 읽어오는 설정
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+    # 💡 2026년 최신 표준 모델인 gemini-2.5-flash 로 모델명을 전격 교체했습니다!
+    ai_model = genai.GenerativeModel('gemini-2.5-flash')
 else:
     ai_model = None
 
@@ -26,6 +28,7 @@ def extract_title(news_dict):
         if news_dict.get(key): return news_dict[key]
     return "최신 시장 이슈"
 
+# 영어 헤드라인 5개를 AI에게 넘겨 한글 해설판으로 변환하는 함수
 def ai_translate_and_explain(headlines, ticker):
     if not ai_model:
         return [f"⚠️ [비밀키 미인식] Render 설정에서 GEMINI_API_KEY를 확인하세요: {h}" for h in headlines]
@@ -52,7 +55,6 @@ def ai_translate_and_explain(headlines, ticker):
         lines = [line.strip() for line in response.text.strip().split('\n') if line.strip()]
         return lines[:5]
     except Exception as e:
-        # 💡 [핵심 변경점] 단순히 지연되었다고 뭉뚱그리지 않고, 진짜 에러 원인(str(e))을 화면에 내보냅니다!
         return [f"❌ AI 에러 발생 ({str(e)}): {h}" for h in headlines]
 
 @app.get("/")
