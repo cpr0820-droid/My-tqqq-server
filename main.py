@@ -4,7 +4,7 @@ import yfinance as yf
 
 app = FastAPI()
 
-# HTML 화면이 파이썬 서버에 접근할 수 있도록 보안문을 열어주는 설정
+# HTML 화면이 파이썬 서버에 접근할 수 있도록 보안문을 열어주는 설정 (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -17,22 +17,18 @@ app.add_middleware(
 def read_root():
     return {"message": "서버가 정상적으로 작동 중입니다!"}
 
+# 1. 실시간 주가 가져오기 기능
 @app.get("/api/market-data/{ticker}")
 def get_market_data(ticker: str):
     stock = yf.Ticker(ticker)
     current_price = stock.fast_info['last_price']
-    
     return {
         "ticker": ticker.upper(),
         "current_price": round(current_price, 2),
         "status": "success"
     }
-    import pandas as pd
 
-# 기존 코드들 아래에 이어서 작성하세요!
-
-@app.get("/api/market-sentiment/{ticker}")
-def analyze_market(ticker: str):
+# 2. 실시간 장세 분석 및 뉴스 수집 기능
 @app.get("/api/market-sentiment/{ticker}")
 def analyze_market(ticker: str):
     stock = yf.Ticker(ticker)
@@ -57,13 +53,13 @@ def analyze_market(ticker: str):
         bull, sideways, bear = 20, 65, 15
         desc = f"최근 1개월 수익률은 {return_rate:.1f}%로, 위아래로 흔들리는 변동성 횡보장입니다. 무한매수법이 수학적 우위를 갖기 가장 좋습니다."
 
-    # 💡 [새로 추가된 기능] 야후 파이낸스에서 최신 뉴스 헤드라인 5개 긁어오기
+    # 야후 파이낸스에서 최신 뉴스 헤드라인 5개 긁어오기
     news_data = stock.news
     news_list = []
     if news_data:
-        for news in news_data[:5]: # 5개만 추출
+        for news in news_data[:5]:
             title = news.get('title', '제목 없음')
-            news_list.append(f"{title}")
+            news_list.append(title)
     else:
         news_list.append("현재 업데이트된 주요 뉴스가 없습니다.")
 
@@ -73,5 +69,5 @@ def analyze_market(ticker: str):
         "sideways_prob": sideways,
         "bear_prob": bear,
         "description": desc,
-        "news": news_list # 화면으로 뉴스 데이터 5줄 쏴주기
+        "news": news_list
     }
