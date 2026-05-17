@@ -14,7 +14,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Render 환경변수에 심어둔 AI 비밀키를 자동으로 읽어오는 설정
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -27,13 +26,10 @@ def extract_title(news_dict):
         if news_dict.get(key): return news_dict[key]
     return "최신 시장 이슈"
 
-# 💡 영어 헤드라인 5개를 AI에게 넘겨 한글 해설판으로 변환하는 마법의 함수
 def ai_translate_and_explain(headlines, ticker):
     if not ai_model:
-        # 혹시 AI 키 설정이 안 되었을 때를 대비한 안전장치
-        return [f"[번역 대기] {h}" for h in headlines]
+        return [f"⚠️ [비밀키 미인식] Render 설정에서 GEMINI_API_KEY를 확인하세요: {h}" for h in headlines]
     
-    # 5개의 뉴스를 한 번에 처리해서 서버 속도를 엄청나게 빠르게 만듭니다!
     prompt = f"""
     너는 주식 초보자(주린이)들을 위한 친절한 금융 전문 AI 비서야.
     아래의 미국 주식 시장 최신 뉴스 헤드라인 5개를 읽고, 주린이 눈높이에 맞춰 다음 규칙대로 변환해 줘.
@@ -45,7 +41,7 @@ def ai_translate_and_explain(headlines, ticker):
     4. 반드시 아래 예시처럼 각 뉴스별로 <li> 태그 안에 들어갈 깔끔한 한 줄 문장 형태로만 딱 5줄 반환해 줘. 다른 인사말은 절대 하지 마.
 
     [반환 예시]
-    📢 [뉴스 요약] - 해설 내용 (예: 엔비디아 실적 발표 임박! 기대감으로 반도체 지수 상방 압력 받는 중입니다.)
+    📢 [뉴스 요약] - 해설 내용
     """
     
     for i, h in enumerate(headlines, 1):
@@ -53,11 +49,11 @@ def ai_translate_and_explain(headlines, ticker):
         
     try:
         response = ai_model.generate_content(prompt)
-        # AI가 준 답변을 한 줄씩 쪼개서 리스트로 만들기
         lines = [line.strip() for line in response.text.strip().split('\n') if line.strip()]
         return lines[:5]
     except Exception as e:
-        return [f"❌ AI 해설 일시 지연: {h}" for h in headlines]
+        # 💡 [핵심 변경점] 단순히 지연되었다고 뭉뚱그리지 않고, 진짜 에러 원인(str(e))을 화면에 내보냅니다!
+        return [f"❌ AI 에러 발생 ({str(e)}): {h}" for h in headlines]
 
 @app.get("/")
 def read_root():
@@ -108,7 +104,6 @@ def analyze_market(ticker: str):
     else:
         raw_headlines.append("현재 미국 시장에 특별한 주요 뉴스가 없습니다.")
 
-    # 💡 수집한 영어 헤드라인들을 AI에게 넘겨서 한글 초보자 해설판으로 교체!
     smart_news = ai_translate_and_explain(raw_headlines, ticker.upper())
 
     return {
