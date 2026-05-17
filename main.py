@@ -12,6 +12,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 💡 어떤 구조로 뉴스가 바뀌어도 제목을 찾아내는 무적의 탐지기 함수
+def extract_title(news_dict):
+    # 1단계: 가장 흔한 핵심 키 단독 확인
+    for key in ['title', 'headline', 'summary', 'text']:
+        if news_dict.get(key):
+            return news_dict[key]
+    
+    # 2단계: content 폴더 같은 2중 구조 안에 숨겨둔 경우 확인
+    if 'content' in news_dict and isinstance(news_dict['content'], dict):
+        for key in ['title', 'headline', 'summary']:
+            if news_dict['content'].get(key):
+                return news_dict['content'][key]
+    
+    # 3단계: 다 안되면 딕셔너리 내부를 샅샅이 뒤져서 가장 그럴듯한 문장 추출
+    all_strings = []
+    def search_deep(data):
+        if isinstance(data, dict):
+            for v in data.values(): search_deep(v)
+        elif isinstance(data, list):
+            for v in data: search_deep(v)
+        elif isinstance(data, str):
+            all_strings.append(data)
+    
+    search_deep(news_dict)
+    # 링크(http)가 아니고 글자 수가 15자 이상인 가장 첫 번째 문장을 제목으로 인정
+    valid_sentences = [s for s in all_strings if len(s) > 15 and not s.startswith('http')]
+    if valid_sentences:
+        return valid_sentences[0]
+        
+    return "최신 미국 시장 주요 이슈"
+
 @app.get("/")
 def read_root():
     return {"message": "서버가 정상적으로 작동 중입니다!"}
@@ -50,24 +81,23 @@ def analyze_market(ticker: str):
         bull, sideways, bear = 20, 65, 15
         desc = f"최근 1개월 수익률은 {return_rate:.1f}%로, 위아래로 흔들리는 변동성 횡보장입니다. 무한매수법이 수학적 우위를 갖기 가장 좋습니다."
 
-    # 💡 [스마트 뉴스 엔진] TQQQ/SOXL 같은 ETF 검색 시, 연동된 대장 지수/주식 뉴스를 대신 긁어오는 로직
     search_ticker = ticker.upper()
     if search_ticker == "TQQQ":
-        search_ticker = "QQQ"  # 나스닥100 지수 뉴스 가져오기
+        search_ticker = "QQQ"
     elif search_ticker == "SOXL":
-        search_ticker = "SOXX" # 필라델피아 반도체 지수 뉴스 가져오기
+        search_ticker = "SOXX"
 
     news_stock = yf.Ticker(search_ticker)
     news_data = news_stock.news
     
-    # 만약 그래도 뉴스 데이터가 비어있다면, 미국 전체 시장 뉴스(SPY)를 가져오기
     if not news_data:
         news_data = yf.Ticker("SPY").news
 
     news_list = []
     if news_data:
         for news in news_data[:5]:
-            title = news.get('title', '제목 없음')
+            # 💡 새로 만든 무적의 함수로 제목 추출!
+            title = extract_title(news)
             news_list.append(title)
     else:
         news_list.append("현재 업데이트된 주요 시장 뉴스가 없습니다.")
