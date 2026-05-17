@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
+import google.generativeai as genai
+import os
 
 app = FastAPI()
 
@@ -12,36 +14,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 💡 어떤 구조로 뉴스가 바뀌어도 제목을 찾아내는 무적의 탐지기 함수
+# Render 환경변수에 심어둔 AI 비밀키를 자동으로 읽어오는 설정
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    ai_model = None
+
 def extract_title(news_dict):
-    # 1단계: 가장 흔한 핵심 키 단독 확인
     for key in ['title', 'headline', 'summary', 'text']:
-        if news_dict.get(key):
-            return news_dict[key]
+        if news_dict.get(key): return news_dict[key]
+    return "최신 시장 이슈"
+
+# 💡 영어 헤드라인 5개를 AI에게 넘겨 한글 해설판으로 변환하는 마법의 함수
+def ai_translate_and_explain(headlines, ticker):
+    if not ai_model:
+        # 혹시 AI 키 설정이 안 되었을 때를 대비한 안전장치
+        return [f"[번역 대기] {h}" for h in headlines]
     
-    # 2단계: content 폴더 같은 2중 구조 안에 숨겨둔 경우 확인
-    if 'content' in news_dict and isinstance(news_dict['content'], dict):
-        for key in ['title', 'headline', 'summary']:
-            if news_dict['content'].get(key):
-                return news_dict['content'][key]
+    # 5개의 뉴스를 한 번에 처리해서 서버 속도를 엄청나게 빠르게 만듭니다!
+    prompt = f"""
+    너는 주식 초보자(주린이)들을 위한 친절한 금융 전문 AI 비서야.
+    아래의 미국 주식 시장 최신 뉴스 헤드라인 5개를 읽고, 주린이 눈높이에 맞춰 다음 규칙대로 변환해 줘.
+
+    [규칙]
+    1. 각 뉴스의 핵심 내용을 친절한 한국어로 번역 및 요약해 줘.
+    2. 이 뉴스가 왜 '{ticker}' 투자자에게 중요한지, 호재인지 악재인지 1~2문장으로 아주 쉽게 해설해 줘.
+    3. 전문 용어(금리 인상, 매파 등)가 있다면 주린이가 이해하기 쉽게 풀어서 설명해 줘.
+    4. 반드시 아래 예시처럼 각 뉴스별로 <li> 태그 안에 들어갈 깔끔한 한 줄 문장 형태로만 딱 5줄 반환해 줘. 다른 인사말은 절대 하지 마.
+
+    [반환 예시]
+    📢 [뉴스 요약] - 해설 내용 (예: 엔비디아 실적 발표 임박! 기대감으로 반도체 지수 상방 압력 받는 중입니다.)
+    """
     
-    # 3단계: 다 안되면 딕셔너리 내부를 샅샅이 뒤져서 가장 그럴듯한 문장 추출
-    all_strings = []
-    def search_deep(data):
-        if isinstance(data, dict):
-            for v in data.values(): search_deep(v)
-        elif isinstance(data, list):
-            for v in data: search_deep(v)
-        elif isinstance(data, str):
-            all_strings.append(data)
-    
-    search_deep(news_dict)
-    # 링크(http)가 아니고 글자 수가 15자 이상인 가장 첫 번째 문장을 제목으로 인정
-    valid_sentences = [s for s in all_strings if len(s) > 15 and not s.startswith('http')]
-    if valid_sentences:
-        return valid_sentences[0]
+    for i, h in enumerate(headlines, 1):
+        prompt += f"\n뉴스 {i}: {h}"
         
-    return "최신 미국 시장 주요 이슈"
+    try:
+        response = ai_model.generate_content(prompt)
+        # AI가 준 답변을 한 줄씩 쪼개서 리스트로 만들기
+        lines = [line.strip() for line in response.text.strip().split('\n') if line.strip()]
+        return lines[:5]
+    except Exception as e:
+        return [f"❌ AI 해설 일시 지연: {h}" for h in headlines]
 
 @app.get("/")
 def read_root():
@@ -51,11 +67,7 @@ def read_root():
 def get_market_data(ticker: str):
     stock = yf.Ticker(ticker)
     current_price = stock.fast_info['last_price']
-    return {
-        "ticker": ticker.upper(),
-        "current_price": round(current_price, 2),
-        "status": "success"
-    }
+    return {"ticker": ticker.upper(), "current_price": round(current_price, 2), "status": "success"}
 
 @app.get("/api/market-sentiment/{ticker}")
 def analyze_market(ticker: str):
@@ -82,25 +94,22 @@ def analyze_market(ticker: str):
         desc = f"최근 1개월 수익률은 {return_rate:.1f}%로, 위아래로 흔들리는 변동성 횡보장입니다. 무한매수법이 수학적 우위를 갖기 가장 좋습니다."
 
     search_ticker = ticker.upper()
-    if search_ticker == "TQQQ":
-        search_ticker = "QQQ"
-    elif search_ticker == "SOXL":
-        search_ticker = "SOXX"
+    if search_ticker == "TQQQ": search_ticker = "QQQ"
+    elif search_ticker == "SOXL": search_ticker = "SOXX"
 
     news_stock = yf.Ticker(search_ticker)
     news_data = news_stock.news
-    
-    if not news_data:
-        news_data = yf.Ticker("SPY").news
+    if not news_data: news_data = yf.Ticker("SPY").news
 
-    news_list = []
+    raw_headlines = []
     if news_data:
         for news in news_data[:5]:
-            # 💡 새로 만든 무적의 함수로 제목 추출!
-            title = extract_title(news)
-            news_list.append(title)
+            raw_headlines.append(extract_title(news))
     else:
-        news_list.append("현재 업데이트된 주요 시장 뉴스가 없습니다.")
+        raw_headlines.append("현재 미국 시장에 특별한 주요 뉴스가 없습니다.")
+
+    # 💡 수집한 영어 헤드라인들을 AI에게 넘겨서 한글 초보자 해설판으로 교체!
+    smart_news = ai_translate_and_explain(raw_headlines, ticker.upper())
 
     return {
         "ticker": ticker.upper(),
@@ -108,5 +117,5 @@ def analyze_market(ticker: str):
         "sideways_prob": sideways,
         "bear_prob": bear,
         "description": desc,
-        "news": news_list
+        "news": smart_news
     }
